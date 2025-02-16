@@ -9,6 +9,19 @@ const COLOR_WHITE: Color = @splat(255);
 const COLOR_BLUE = Color{ 0, 0, 255 };
 const COLOR_RED = Color{ 255, 0, 0 };
 
+const Ray = struct {
+    origin: Vec3,
+    direction: Vec3,
+
+    fn color(this: *const @This()) Vec3 {
+        const white = Vec3{ 1, 1, 1 };
+        const blue = Vec3{ 0.5, 0.7, 1.0 };
+
+        const a = (this.direction[1] + 1) / 2;
+        return white * vec3(1 - a) + blue * vec3(a);
+    }
+};
+
 const Image = struct {
     data: []Color,
     w: usize,
@@ -68,28 +81,96 @@ const Image = struct {
             .img_descriptor = .TOP_TO_BOTTOM,
         }, std.builtin.Endian.little);
 
-        try w.writeAll(std.mem.sliceAsBytes(this.data));
+        for (this.data) |color| {
+            const data: [3]u8 = std.simd.reverseOrder(color);
+            try w.writeAll(&data);
+        }
     }
 };
+
+fn vec_to_color(color: Vec3) Color {
+	const max = 0.9999;
+    return Color{
+        // clamp prevents overflow
+        @intFromFloat(std.math.clamp(color[0], 0, max) * 256),
+        @intFromFloat(std.math.clamp(color[1], 0, max) * 256),
+        @intFromFloat(std.math.clamp(color[2], 0, max) * 256),
+    };
+}
+
+fn vec3(v: anytype) Vec3 {
+    if (@TypeOf(v) == usize) {
+        return @splat(@floatFromInt(v));
+    }
+    return @splat(@as(f64, v));
+}
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const image = try Image.create_color(alloc, 200, 200, COLOR_RED);
+    const aspect_ratio = 16.0 / 9.0;
+    const width: usize = 512;
+    const height: usize = @intFromFloat(@max(@as(f64, width) / aspect_ratio, 1.0));
 
-    std.debug.print("{d} x {d}\n", .{ image.w, image.h });
+    const camera_center = Vec3{ 0, 0, 1 };
+    const focal_length = Vec3{ 0, 0, 2.0 };
 
-    { // write ppm
-        const output = try std.fs.cwd().createFile("output.ppm", .{});
-        defer output.close();
-        try image.write_ppm(output.writer().any());
+    // Viewport
+    const viewport_height = 2.0;
+    const viewport_width = viewport_height * (@as(f64, width) / height);
+
+    const viewport_u = Vec3{ viewport_width, 0, 0 };
+    const viewport_v = Vec3{ 0, -viewport_height, 0 };
+
+    const pix_delta_u = viewport_u / vec3(width);
+    const pix_delta_v = viewport_v / vec3(height);
+
+    const viewport_upper_left = camera_center - focal_length - (viewport_u + viewport_v) / vec3(2);
+    const pix00_location = viewport_upper_left + (pix_delta_u + pix_delta_v) / vec3(2);
+
+    const image = try Image.create_color(alloc, width, height, COLOR_RED);
+
+    for (0..image.h) |i| {
+        for (0..image.w) |j| {
+            const pix_center = pix00_location + pix_delta_u * vec3(j) + pix_delta_v * vec3(i);
+            const ray = Ray{
+                .origin = camera_center,
+                .direction = pix_center - camera_center,
+            };
+
+            //const color: Vec3 = @splat(0);
+            //const samples = 8.0;
+            //for (0..samples) |ry| {
+            //}
+
+            image.data[i * width + j] = vec_to_color(ray.color());
+        }
     }
+
+    //{ // write ppm
+    //    const output = try std.fs.cwd().createFile("output.ppm", .{});
+    //    defer output.close();
+    //    try image.write_ppm(output.writer().any());
+    //}
 
     { // write tga
         const output = try std.fs.cwd().createFile("output.tga", .{});
         defer output.close();
-        try image.write_tga(output.writer().any());
+        var buffered = std.io.bufferedWriter(output.writer());
+        try image.write_tga(buffered.writer().any());
+        try buffered.flush();
     }
+}
+
+test "sanity check" {
+    // To iterate over consecutive integers, use the range syntax.
+    // Unbounded range is always a compile error.
+    var sum3: usize = 0;
+    for (0..5) |i| {
+        std.debug.print("{d}", .{i});
+        sum3 += i;
+    }
+    try std.testing.expect(sum3 == 10);
 }
