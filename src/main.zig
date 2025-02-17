@@ -28,16 +28,15 @@ fn to_vec(v: anytype) Vec3 {
     return @splat(@as(f64, v));
 }
 
-var global_prng = std.rand.DefaultPrng.init(69);
-const global_random = global_prng.random();
+threadlocal var global_prng = std.rand.DefaultPrng.init(69);
 
 fn vec3_rand(min: f64, max: f64) Vec3 {
     std.debug.assert(max > min);
     const d = max - min;
     return Vec3{
-        std.rand.float(global_random, f64) * d + min,
-        std.rand.float(global_random, f64) * d + min,
-        std.rand.float(global_random, f64) * d + min,
+        std.rand.float(global_prng.random(), f64) * d + min,
+        std.rand.float(global_prng.random(), f64) * d + min,
+        std.rand.float(global_prng.random(), f64) * d + min,
     };
 }
 
@@ -451,7 +450,7 @@ const Camera = struct {
     }
 
     fn sample_square() Vec3 {
-        return Vec3{ std.rand.float(global_random, f64) - 0.5, std.rand.float(global_random, f64), 0 };
+        return Vec3{ std.rand.float(global_prng.random(), f64) - 0.5, std.rand.float(global_prng.random(), f64), 0 };
     }
 
     fn render_section(this: @This(), image: *const Image, world: []const Hittable, hrange: Interval(isize)) void {
@@ -556,6 +555,7 @@ pub fn main() !void {
         .aspect_ratio = 16.0 / 9.0,
         .focal_length = 2,
         .center = Vec3{ 0, 0, 1 },
+        .pix_samples = 30,
     };
     camera.init();
 
@@ -578,7 +578,7 @@ pub fn main() !void {
         },
     } };
 
-    const thread_count = 1;
+    const thread_count = 19;
     const rows = @divTrunc(camera.height, thread_count);
     std.debug.print("threads: {d}, rows: {d}\n", .{ thread_count, rows });
     std.debug.print("h: {d}, got: {d}\n", .{ camera.height, rows * thread_count });
