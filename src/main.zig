@@ -578,7 +578,7 @@ pub fn main() !void {
         },
     } };
 
-    const thread_count = 19;
+    const thread_count = 16;
     const rows = @divTrunc(camera.height, thread_count);
     std.debug.print("threads: {d}, rows: {d}\n", .{ thread_count, rows });
     std.debug.print("h: {d}, got: {d}\n", .{ camera.height, rows * thread_count });
@@ -589,7 +589,12 @@ pub fn main() !void {
         errdefer join_threads(&threads);
 
         const i_isize: isize = @intCast(i);
-        const interval = Interval(isize).new(i_isize * rows, (i_isize + 1) * rows);
+        var interval = Interval(isize).new(i_isize * rows, (i_isize + 1) * rows);
+
+        if (i == (thread_count - 1)) {
+            // ensure entire image is rendered
+            interval.max = camera.height;
+        }
 
         threads[i] = try std.Thread.spawn(.{}, Camera.render_section, .{ camera, &image, &world, interval });
     }
