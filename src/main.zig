@@ -29,15 +29,15 @@ fn to_vec(v: anytype) Vec3 {
 }
 
 var global_prng = std.rand.DefaultPrng.init(69);
-const random = global_prng.random();
+const global_random = global_prng.random();
 
 fn vec3_rand(min: f64, max: f64) Vec3 {
     std.debug.assert(max > min);
     const d = max - min;
     return Vec3{
-        std.rand.float(random, f64) * d + min,
-        std.rand.float(random, f64) * d + min,
-        std.rand.float(random, f64) * d + min,
+        std.rand.float(global_random, f64) * d + min,
+        std.rand.float(global_random, f64) * d + min,
+        std.rand.float(global_random, f64) * d + min,
     };
 }
 
@@ -91,22 +91,24 @@ fn vec3_rand_hemisphere(normal: Vec3) Vec3 {
     return rand;
 }
 
-const Interval = struct {
-    min: f64,
-    max: f64,
+fn Interval(comptime T: type) type {
+    return struct {
+        min: T,
+        max: T,
 
-    fn new(min: f64, max: f64) @This() {
-        return Interval{ .min = min, .max = max };
-    }
+        fn new(min: T, max: T) @This() {
+            return @This(){ .min = min, .max = max };
+        }
 
-    fn surrounds(this: *const @This(), n: f64) bool {
-        return this.min <= n and n <= this.max;
-    }
+        fn surrounds(this: *const @This(), n: T) bool {
+            return this.min <= n and n <= this.max;
+        }
 
-    fn includes(this: *const @This(), n: f64) bool {
-        return this.min < n and n < this.max;
-    }
-};
+        fn includes(this: *const @This(), n: T) bool {
+            return this.min < n and n < this.max;
+        }
+    };
+}
 
 const Hit = struct {
     t: f64 = 0,
@@ -136,7 +138,7 @@ const Sphere = struct {
     center: Vec3,
     radius: f64,
 
-    fn compute_hit(this: @This(), ray: Ray, t: Interval) ?Hit {
+    fn compute_hit(this: @This(), ray: Ray, t: Interval(f64)) ?Hit {
         const oc = this.center - ray.origin;
 
         const a = vec3_len2(ray.direction);
@@ -183,7 +185,7 @@ const Sphere = struct {
         const no_hit = sphere.compute_hit(Ray{
             .origin = Vec3{ 0, 1, 0 },
             .direction = Vec3{ 0, 1, 0 },
-        }, Interval.new(0, 1));
+        }, Interval(f64).new(0, 1));
 
         std.testing.expect(no_hit == null) catch |err| {
             std.log.err("{s}", .{no_hit.?});
@@ -193,7 +195,7 @@ const Sphere = struct {
         const hit = sphere.compute_hit(Ray{
             .origin = Vec3{ 0, 3, 0 },
             .direction = Vec3{ 0, -1, 0 },
-        }, Interval.new(0, 5));
+        }, Interval(f64).new(0, 5));
 
         try std.testing.expect(hit != null);
     }
@@ -202,13 +204,13 @@ const Sphere = struct {
 const Hittable = union(enum) {
     sphere: Sphere,
 
-    fn compute_hit(this: @This(), ray: Ray, t: Interval) ?Hit {
+    fn compute_hit(this: @This(), ray: Ray, t: Interval(f64)) ?Hit {
         return switch (this) {
             .sphere => |sphere| sphere.compute_hit(ray, t),
         };
     }
 
-    fn compute_hit_many(hittables: []const @This(), ray: Ray, t: Interval) ?Hit {
+    fn compute_hit_many(hittables: []const @This(), ray: Ray, t: Interval(f64)) ?Hit {
         var result: ?Hit = null;
         var interval = t;
 
@@ -234,7 +236,7 @@ const Hittable = union(enum) {
         const no_hit = hittable.compute_hit(Ray{
             .origin = Vec3{ 0, 1, 0 },
             .direction = Vec3{ 0, 1, 0 },
-        }, Interval.new(0, 1));
+        }, Interval(f64).new(0, 1));
 
         std.testing.expect(no_hit == null) catch |err| {
             std.log.err("{s}", .{no_hit.?});
@@ -244,7 +246,7 @@ const Hittable = union(enum) {
         const hit = hittable.compute_hit(Ray{
             .origin = Vec3{ 0, 3, 0 },
             .direction = Vec3{ 0, -1, 0 },
-        }, Interval.new(0, 5));
+        }, Interval(f64).new(0, 5));
 
         try std.testing.expect(hit != null);
     }
@@ -260,7 +262,7 @@ const Hittable = union(enum) {
         const no_hit = Hittable.compute_hit_many(&hittables, Ray{
             .origin = Vec3{ 0, 1, 0 },
             .direction = Vec3{ 0, 1, 0 },
-        }, Interval.new(0, 1));
+        }, Interval(f64).new(0, 1));
 
         std.testing.expect(no_hit == null) catch |err| {
             std.log.err("{s}", .{no_hit.?});
@@ -270,7 +272,7 @@ const Hittable = union(enum) {
         const hit = Hittable.compute_hit_many(&hittables, Ray{
             .origin = Vec3{ 0, 3, 0 },
             .direction = Vec3{ 0, -1, 0 },
-        }, Interval.new(0, 5));
+        }, Interval(f64).new(0, 5));
 
         try std.testing.expect(hit != null);
     }
@@ -286,7 +288,7 @@ const Ray = struct {
             return to_vec(0);
         }
 
-        const maybe_hit = Hittable.compute_hit_many(world, this, Interval.new(0.00001, 10));
+        const maybe_hit = Hittable.compute_hit_many(world, this, Interval(f64).new(0.00001, 10));
         if (maybe_hit) |hit| {
             const next_ray = Ray{
                 .origin = hit.point,
@@ -302,37 +304,23 @@ const Ray = struct {
         const a = (this.direction[1] + 1) / 2;
         return white * to_vec(1 - a) + blue * to_vec(a);
     }
-
-    //test "Ray.color" {
-    //    const hittables = [_]Hittable{
-    //        .{ .sphere = .{
-    //            .center = Vec3{ 0, 0, 0 },
-    //            .radius = 1,
-    //        } },
-    //    };
-
-    //    const ray = Ray{
-    //        .origin = Vec3{ 0, 3, 0 },
-    //        .direction = Vec3{ 0, -1, 0 },
-    //    };
-
-    //    const pix_color = ray.color(&hittables, 1);
-    //    try std.testing.expect(@reduce(.And, pix_color == Vec3{ 1, 0, 0 }));
-    //}
 };
 
 const Image = struct {
     data: []Color,
-    w: usize,
-    h: usize,
+    w: isize,
+    h: isize,
     allocator: Allocator,
 
-    fn new(allocator: Allocator, w: usize, h: usize) !@This() {
+    fn new(allocator: Allocator, w: isize, h: isize) !@This() {
         return new_with_color(allocator, w, h, COLOR_BLACK);
     }
 
-    fn new_with_color(allocator: Allocator, w: usize, h: usize, color: Color) !@This() {
-        const data = try allocator.alloc(Color, w * h);
+    fn new_with_color(allocator: Allocator, w: isize, h: isize, color: Color) !@This() {
+        std.debug.assert(w > 0);
+        std.debug.assert(h > 0);
+
+        const data = try allocator.alloc(Color, @intCast(w * h));
         @memset(data, color);
         return .{ .data = data, .w = w, .h = h, .allocator = allocator };
     }
@@ -405,32 +393,173 @@ fn gamma_correction(color: Vec3) Vec3 {
     };
 }
 
+const Camera = struct {
+    // image output
+    aspect_ratio: f64 = 0,
+    width: isize,
+    height: isize = 0,
+
+    // camera settings
+    center: Vec3 = @splat(0),
+    focal_length: f64 = 1,
+    pix_samples: i32 = 10,
+    max_bounces: i32 = 10,
+    sampler: *const fn () Vec3 = sample_square,
+    gamma_correction: *const fn (color: Vec3) Vec3 = gamma_correction,
+
+    // calculated
+    pix00_location: Vec3 = @splat(0),
+    pix_delta_u: Vec3 = @splat(0),
+    pix_delta_v: Vec3 = @splat(0),
+
+    fn init(this: *@This()) void {
+        // either height or aspect_ratio
+        std.debug.assert(this.height != 0 or this.aspect_ratio != 0);
+        std.debug.assert((this.height > 0 and this.aspect_ratio == 0) or (this.height == 0 and this.aspect_ratio > 0));
+
+        std.debug.assert(this.width > 0);
+        std.debug.assert(this.focal_length >= 0);
+        std.debug.assert(this.pix_samples >= 0);
+
+        if (this.height == 0) {
+            // height from aspect_ratio
+            const w: f64 = @floatFromInt(this.width);
+            this.height = @intFromFloat(w / this.aspect_ratio);
+            this.height = @max(this.height, 1);
+        }
+
+        const w: f64 = @floatFromInt(this.width);
+        const h: f64 = @floatFromInt(this.height);
+
+        this.aspect_ratio = w / h; // recalculate aspect_ratio to compensate height to int
+
+        // Viewport
+        const viewport_height = 2;
+        const viewport_width = viewport_height * this.aspect_ratio;
+
+        const viewport_u = Vec3{ viewport_width, 0, 0 };
+        const viewport_v = Vec3{ 0, -viewport_height, 0 };
+
+        this.pix_delta_u = viewport_u / to_vec(w);
+        this.pix_delta_v = viewport_v / to_vec(h);
+
+        var viewport_upper_left = this.center;
+        viewport_upper_left -= Vec3{ 0, 0, this.focal_length };
+        viewport_upper_left -= (viewport_u + viewport_v) / to_vec(2);
+
+        this.pix00_location = viewport_upper_left + (this.pix_delta_u + this.pix_delta_v) / to_vec(2);
+    }
+
+    fn sample_square() Vec3 {
+        return Vec3{ std.rand.float(global_random, f64) - 0.5, std.rand.float(global_random, f64), 0 };
+    }
+
+    fn render_section(this: @This(), image: *const Image, world: []const Hittable, hrange: Interval(isize)) void {
+        std.debug.assert(image.w == this.width);
+        std.debug.assert(image.h == this.height);
+
+        const h_min: usize = @intCast(hrange.min);
+        const h_max: usize = @intCast(hrange.max);
+        const w_usize: usize = @intCast(this.width);
+
+        for (h_min..h_max) |i| {
+            for (0..w_usize) |j| {
+                const pix_center = this.pix00_location + this.pix_delta_u * to_vec(j) + this.pix_delta_v * to_vec(i);
+
+                var color: Vec3 = @splat(0);
+
+                const samples_f64: f64 = @floatFromInt(this.pix_samples);
+                const samples: usize = @intCast(this.pix_samples);
+
+                for (0..samples) |ry| {
+                    const ry_f64: f64 = @floatFromInt(ry);
+
+                    for (0..samples) |rx| {
+                        const rx_f64: f64 = @floatFromInt(rx);
+
+                        var center = pix_center;
+                        center += this.pix_delta_u * to_vec((ry_f64 / samples_f64) - 0.5);
+                        center += this.pix_delta_v * to_vec((rx_f64 / samples_f64) - 0.5);
+
+                        const ray = Ray{
+                            .origin = this.center,
+                            .direction = center - this.center,
+                        };
+
+                        color += ray.color(world, 10);
+                    }
+                }
+
+                color = color / to_vec(samples * samples);
+                color = gamma_correction(color);
+
+                image.data[i * w_usize + j] = vec_to_color(color);
+            }
+        }
+    }
+
+    test "init" {
+        var camera = Camera{
+            .width = 160,
+            .aspect_ratio = 16.0 / 9.0,
+        };
+        camera.init();
+
+        try std.testing.expect(camera.height == 90);
+    }
+
+    test "sample_square" {
+        const min: f64 = -0.5;
+        const max: f64 = 0.5;
+        const r = sample_square();
+        try std.testing.expect(min <= r[0] and r[0] < max);
+        try std.testing.expect(min <= r[1] and r[1] < max);
+        try std.testing.expect(r[2] == 0);
+    }
+};
+
+fn join_threads(threads: []?std.Thread) void {
+    for (threads) |maybe_thread| {
+        if (maybe_thread) |thread| {
+            thread.join();
+        }
+    }
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const aspect_ratio = 16.0 / 9.0;
-    const width: usize = 1200;
-    const height: usize = @intFromFloat(@max(@as(f64, width) / aspect_ratio, 1.0));
+    //const aspect_ratio = 16.0 / 9.0;
+    //const width: usize = 512;
+    //const height: usize = @intFromFloat(@max(@as(f64, width) / aspect_ratio, 1.0));
 
-    const camera_center = Vec3{ 0, 0, 1 };
-    const focal_length = Vec3{ 0, 0, 2.0 };
+    //const camera_center = Vec3{ 0, 0, 1 };
+    //const focal_length = Vec3{ 0, 0, 2.0 };
 
-    // Viewport
-    const viewport_height = 2.0;
-    const viewport_width = viewport_height * (@as(f64, width) / height);
+    //// Viewport
+    //const viewport_height = 2.0;
+    //const viewport_width = viewport_height * (@as(f64, width) / height);
 
-    const viewport_u = Vec3{ viewport_width, 0, 0 };
-    const viewport_v = Vec3{ 0, -viewport_height, 0 };
+    //const viewport_u = Vec3{ viewport_width, 0, 0 };
+    //const viewport_v = Vec3{ 0, -viewport_height, 0 };
 
-    const pix_delta_u = viewport_u / to_vec(width);
-    const pix_delta_v = viewport_v / to_vec(height);
+    //const pix_delta_u = viewport_u / to_vec(width);
+    //const pix_delta_v = viewport_v / to_vec(height);
 
-    const viewport_upper_left = camera_center - focal_length - (viewport_u + viewport_v) / to_vec(2);
-    const pix00_location = viewport_upper_left + (pix_delta_u + pix_delta_v) / to_vec(2);
+    //const viewport_upper_left = camera_center - focal_length - (viewport_u + viewport_v) / to_vec(2);
+    //const pix00_location = viewport_upper_left + (pix_delta_u + pix_delta_v) / to_vec(2);
 
-    const image = try Image.new_with_color(alloc, width, height, COLOR_RED);
+    var camera = Camera{
+        .width = 1200,
+        .aspect_ratio = 16.0 / 9.0,
+        .focal_length = 2,
+        .center = Vec3{ 0, 0, 1 },
+    };
+    camera.init();
+
+    const image = try Image.new_with_color(alloc, camera.width, camera.height, COLOR_RED);
 
     const world = [_]Hittable{ .{
         .sphere = .{
@@ -449,41 +578,22 @@ pub fn main() !void {
         },
     } };
 
-    for (0..image.h) |i| {
-        std.debug.print("Progress: {d:.0}%\r", .{@as(f64, @floatFromInt(i)) / height * 100});
-        for (0..image.w) |j| {
-            const pix_center = pix00_location + pix_delta_u * to_vec(j) + pix_delta_v * to_vec(i);
+    const thread_count = 1;
+    const rows = @divTrunc(camera.height, thread_count);
+    std.debug.print("threads: {d}, rows: {d}\n", .{ thread_count, rows });
+    std.debug.print("h: {d}, got: {d}\n", .{ camera.height, rows * thread_count });
 
-            var color: Vec3 = @splat(0);
+    var threads = [_]?std.Thread{null} ** thread_count;
 
-            const samples = 8.0;
-            for (0..samples) |ry| {
-                for (0..samples) |rx| {
-                    var center = pix_center;
-                    center += pix_delta_u * to_vec((@as(f64, @floatFromInt(ry)) / samples) - 0.5);
-                    center += pix_delta_v * to_vec((@as(f64, @floatFromInt(rx)) / samples) - 0.5);
+    for (0..thread_count) |i| {
+        errdefer join_threads(&threads);
 
-                    const ray = Ray{
-                        .origin = camera_center,
-                        .direction = center - camera_center,
-                    };
+        const i_isize: isize = @intCast(i);
+        const interval = Interval(isize).new(i_isize * rows, (i_isize + 1) * rows);
 
-                    color += ray.color(&world, 100);
-                }
-            }
-
-            color = color / to_vec(samples * samples);
-            color = gamma_correction(color);
-
-            image.data[i * width + j] = vec_to_color(color);
-        }
+        threads[i] = try std.Thread.spawn(.{}, Camera.render_section, .{ camera, &image, &world, interval });
     }
-
-    //{ // write ppm
-    //    const output = try std.fs.cwd().createFile("output.ppm", .{});
-    //    defer output.close();
-    //    try image.write_ppm(output.writer().any());
-    //}
+    join_threads(&threads);
 
     { // write tga
         const output = try std.fs.cwd().createFile("output.tga", .{});
@@ -497,4 +607,5 @@ pub fn main() !void {
 test {
     std.testing.refAllDecls(Sphere);
     std.testing.refAllDecls(Hittable);
+    std.testing.refAllDecls(Camera);
 }
